@@ -5,23 +5,50 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strconv"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
-type searchDupFilesResponse struct {
-	Duplications []searchDupFilesEntry `json:"duplications"`
-	Paging       searchDupFilesPaging  `json:"paging"`
+// Raw API response structures for /api/duplications/list
+type dupListResponse struct {
+	Duplications []dupListEntry `json:"duplications"`
+	Paging       dupListPaging  `json:"paging"`
 }
-type searchDupFilesEntry struct {
+type dupListEntry struct {
 	File             string `json:"file"`
 	Project          string `json:"project"`
 	DuplicatedBlocks int    `json:"duplicatedBlocks"`
 	DuplicatedLines  int    `json:"duplicatedLines"`
 }
-type searchDupFilesPaging struct {
+type dupListPaging struct {
+	PageIndex int `json:"pageIndex"`
+	PageSize  int `json:"pageSize"`
+	Total     int `json:"total"`
+}
+
+// Structured response matching Java SearchDuplicatedFilesToolResponse
+type SearchDuplicatedFilesToolResponse struct {
+	Files   []DuplicatedFile `json:"files"`
+	Paging  DupPaging        `json:"paging"`
+	Summary *Summary         `json:"summary,omitempty"`
+}
+type DuplicatedFile struct {
+	Key                   string  `json:"key"`
+	Name                  string  `json:"name"`
+	Path                  *string `json:"path,omitempty"`
+	DuplicatedLines       *int    `json:"duplicatedLines,omitempty"`
+	DuplicatedBlocks      *int    `json:"duplicatedBlocks,omitempty"`
+	DuplicatedLinesDensity *string `json:"duplicatedLinesDensity,omitempty"`
+}
+type Summary struct {
+	TotalDuplicatedLines     *int    `json:"totalDuplicatedLines,omitempty"`
+	TotalDuplicatedBlocks    *int    `json:"totalDuplicatedBlocks,omitempty"`
+	OverallDuplicationDensity *string `json:"overallDuplicationDensity,omitempty"`
+}
+type DupPaging struct {
 	PageIndex int `json:"pageIndex"`
 	PageSize  int `json:"pageSize"`
 	Total     int `json:"total"`
@@ -42,7 +69,7 @@ func NewSearchDuplicatedFilesMCPTool() mcp.Tool {
 				"pageIndex": {"type": "integer", "description": "1-based page index. Defaults to 1.", "default": 1}
 			},
 			"additionalProperties": false
-}`))
+	}`))
 }
 
 func SearchDuplicatedFilesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -66,17 +93,61 @@ func SearchDuplicatedFilesHandler(ctx context.Context, request mcp.CallToolReque
 	}
 
 	client := mcputils.NewSQClient()
-	var resp searchDupFilesResponse
+	var resp dupListResponse
 	if err := client.DoGet(ctx, "/api/duplications/list", params, &resp); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Search duplicated files failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Found %d duplicated files:\n", resp.Paging.Total)
+	// Build files list
+	files := make([]DuplicatedFile, 0, len(resp.Duplications))
+	totalLines := 0
+	totalBlocks := 0
 	for _, d := range resp.Duplications {
-		text += fmt.Sprintf("- %s: %d blocks, %d duplicated lines\n", d.File, d.DuplicatedBlocks, d.DuplicatedLines)
+		path := d.File
+		name := filepath.Base(path)
+
+		df := DuplicatedFile{
+			Key:  path,
+			Name: name,
+		}
+		if path != "" {
+			df.Path = &path
+		}
+		if d.DuplicatedLines > 0 {
+			dl := d.DuplicatedLines
+			df.DuplicatedLines = &dl
+		}
+		if d.DuplicatedBlocks > 0 {
+			db := d.DuplicatedBlocks
+			df.DuplicatedBlocks = &db
+		}
+
+		totalLines += d.DuplicatedLines
+		totalBlocks += d.DuplicatedBlocks
+
+		files = append(files, df)
 	}
-	if len(resp.Duplications) == 0 {
-		text = "No duplicated files found."
+
+	// Build summary
+	summary := &Summary{}
+	if totalLines > 0 {
+		summary.TotalDuplicatedLines = &totalLines
 	}
-	return mcp.NewToolResultText(text), nil
+	if totalBlocks > 0 {
+		summary.TotalDuplicatedBlocks = &totalBlocks
+	}
+
+	// Build response
+	response := SearchDuplicatedFilesToolResponse{
+		Files: files,
+		Paging: DupPaging{
+			PageIndex: resp.Paging.PageIndex,
+			PageSize:  resp.Paging.PageSize,
+			Total:     resp.Paging.Total,
+		},
+		Summary: summary,
+	}
+
+	respJSON, _ := json.MarshalIndent(response, "", "  ")
+	return mcp.NewToolResultText(string(respJSON)), nil
 }

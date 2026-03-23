@@ -10,6 +10,15 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
+// Tool response types (matching Java ChangeSecurityHotspotStatusToolResponse)
+type ChangeSecurityHotspotStatusToolResponse struct {
+	Success       bool    `json:"success"`
+	Message       string  `json:"message"`
+	HotspotKey    string  `json:"hotspotKey"`
+	NewStatus     string  `json:"newStatus"`
+	NewResolution *string `json:"newResolution,omitempty"`
+}
+
 func NewChangeSecurityHotspotStatusMCPTool() mcp.Tool {
 	return mcp.NewToolWithRawSchema(
 		"change_security_hotspot_status",
@@ -45,6 +54,9 @@ func ChangeSecurityHotspotStatusHandler(ctx context.Context, request mcp.CallToo
 	if status == "REVIEWED" && resolution == "" {
 		return mcp.NewToolResultError("resolution is required when status is REVIEWED"), nil
 	}
+	if status == "TO_REVIEW" && resolution != "" {
+		return mcp.NewToolResultError("resolution must not be set when status is TO_REVIEW"), nil
+	}
 
 	params := url.Values{}
 	params.Set("hotspot", hotspotKey)
@@ -61,5 +73,20 @@ func ChangeSecurityHotspotStatusHandler(ctx context.Context, request mcp.CallToo
 		return mcp.NewToolResultError(fmt.Sprintf("Change hotspot status failed: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Hotspot %s status changed to %s.", hotspotKey, status)), nil
+	response := ChangeSecurityHotspotStatusToolResponse{
+		Success:    true,
+		Message:    fmt.Sprintf("Hotspot %s status changed to %s.", hotspotKey, status),
+		HotspotKey: hotspotKey,
+		NewStatus:  status,
+	}
+	if resolution != "" {
+		r := resolution
+		response.NewResolution = &r
+	}
+
+	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }

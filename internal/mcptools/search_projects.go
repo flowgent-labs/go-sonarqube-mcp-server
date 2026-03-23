@@ -11,6 +11,7 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
+// Raw API response types for /api/components/search
 type searchProjectsResponse struct {
 	Paging     searchProjectsPaging `json:"paging"`
 	Components []searchProjectsComp `json:"components"`
@@ -25,20 +26,38 @@ type searchProjectsComp struct {
 	Name string `json:"name"`
 }
 
+// Tool response types matching Java SearchMyProjectsToolResponse
+type SearchMyProjectsToolResponse struct {
+	Projects []Project `json:"projects"`
+	Paging   Paging    `json:"paging"`
+}
+
+type Project struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+
+type Paging struct {
+	PageIndex   int  `json:"pageIndex"`
+	PageSize    int  `json:"pageSize"`
+	Total       int  `json:"total"`
+	HasNextPage bool `json:"hasNextPage"`
+}
+
 func NewSearchMyProjectsMCPTool() mcp.Tool {
 	return mcp.NewToolWithRawSchema(
 		"search_my_sonarqube_projects",
 		"Search My SonarQube Projects — Find SonarQube projects. Supports searching by project name or key. Use this first when projectKey is unknown — most other tools require the project key from this response.",
 		json.RawMessage(
 			`{
-			"type": "object",
-			"properties": {
-				"q": {"type": "string", "description": "Optional search query to filter projects by name (partial match) or key (exact match)."},
-				"page": {"type": "integer", "description": "Optional page number. Defaults to 1.", "default": 1},
-				"pageSize": {"type": "integer", "description": "Optional page size. Min 1, max 500. Defaults to 500.", "default": 500}
-			},
-			"additionalProperties": false
-}`))
+				"type": "object",
+				"properties": {
+					"q": {"type": "string", "description": "Optional search query to filter projects by name (partial match) or key (exact match)."},
+					"page": {"type": "integer", "description": "Optional page number. Defaults to 1.", "default": 1},
+					"pageSize": {"type": "integer", "description": "Optional page size. Min 1, max 500. Defaults to 500.", "default": 500}
+				},
+				"additionalProperties": false
+	}`))
 }
 
 func SearchMyProjectsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -65,17 +84,28 @@ func SearchMyProjectsHandler(ctx context.Context, request mcp.CallToolRequest) (
 	}
 
 	client := mcputils.NewSQClient()
-	var resp searchProjectsResponse
-	if err := client.DoGet(ctx, "/api/components/search", params, &resp); err != nil {
+	var rawResp searchProjectsResponse
+	if err := client.DoGet(ctx, "/api/components/search", params, &rawResp); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Search projects failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Found %d projects (page %d/%d):\n", len(resp.Components), resp.Paging.PageIndex, (resp.Paging.Total+resp.Paging.PageSize-1)/resp.Paging.PageSize)
-	for _, c := range resp.Components {
-		text += fmt.Sprintf("- %s (%s)\n", c.Name, c.Key)
+	hasNextPage := rawResp.Paging.PageIndex*rawResp.Paging.PageSize < rawResp.Paging.Total
+	resp := SearchMyProjectsToolResponse{
+		Projects: make([]Project, len(rawResp.Components)),
+		Paging: Paging{
+			PageIndex:   rawResp.Paging.PageIndex,
+			PageSize:    rawResp.Paging.PageSize,
+			Total:       rawResp.Paging.Total,
+			HasNextPage: hasNextPage,
+		},
 	}
-	if len(resp.Components) == 0 {
-		text = "No projects found."
+	for i, c := range rawResp.Components {
+		resp.Projects[i] = Project{Key: c.Key, Name: c.Name}
 	}
-	return mcp.NewToolResultText(text), nil
+
+	jsonBytes, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }

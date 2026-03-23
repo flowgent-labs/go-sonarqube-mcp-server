@@ -9,6 +9,10 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
+type SystemPingToolResponse struct {
+	Response string `json:"response"`
+}
+
 func NewSystemPingMCPTool() mcp.Tool {
 	return mcp.NewToolWithRawSchema(
 		"ping_system",
@@ -27,5 +31,7 @@ func SystemPingHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("System ping failed: %v", err)), nil
 	}
-	return mcp.NewToolResultText(raw), nil
+
+	respJSON, _ := json.MarshalIndent(SystemPingToolResponse{Response: raw}, "", "  ")
+	return mcp.NewToolResultText(string(respJSON)), nil
 }

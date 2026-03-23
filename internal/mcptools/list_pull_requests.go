@@ -10,21 +10,32 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
-type listPRsResponse struct {
-	PullRequests []listPREntry `json:"pullRequests"`
+// Raw API response structures
+type pullRequestsResponse struct {
+	PullRequests []pullRequestEntry `json:"pullRequests"`
 }
-type listPREntry struct {
+type pullRequestEntry struct {
 	Key    string `json:"key"`
 	Title  string `json:"title"`
 	Branch string `json:"branch"`
-	Base   string `json:"base"`
-	Status string `json:"status"`
+}
+
+// Structured response matching Java ListPullRequestsToolResponse
+type ListPullRequestsToolResponse struct {
+	ProjectKey        string                    `json:"projectKey"`
+	TotalPullRequests int                       `json:"totalPullRequests"`
+	PullRequests      []ListPullRequestsPR      `json:"pullRequests"`
+}
+type ListPullRequestsPR struct {
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Branch string `json:"branch"`
 }
 
 func NewListPullRequestsMCPTool() mcp.Tool {
 	return mcp.NewToolWithRawSchema(
 		"list_pull_requests",
-		"List Pull Requests — List all pull requests for a project with their key/ID and source branch.",
+		"List SonarQube Pull Requests — List all pull requests for a project. Use this tool to discover available pull requests and their corresponding branch names before analyzing their coverage, issues, or quality. Returns the pull request key/ID and source branch for each PR, which can be used with other tools that accept a pullRequest parameter. For long-lived branches (main, develop), use list_branches instead.",
 		json.RawMessage(
 			`{
 			"type": "object",
@@ -32,7 +43,7 @@ func NewListPullRequestsMCPTool() mcp.Tool {
 				"projectKey": {"type": "string", "description": "SonarQube project key. Required unless a default is configured via SONARQUBE_PROJECT_KEY."}
 			},
 			"additionalProperties": false
-}`))
+	}`))
 }
 
 func ListPullRequestsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -46,17 +57,26 @@ func ListPullRequestsHandler(ctx context.Context, request mcp.CallToolRequest) (
 	params.Set("project", projectKey)
 
 	client := mcputils.NewSQClient()
-	var resp listPRsResponse
+	var resp pullRequestsResponse
 	if err := client.DoGet(ctx, "/api/project_pull_requests/list", params, &resp); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("List pull requests failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Pull requests for project %s:\n", projectKey)
+	pullRequests := make([]ListPullRequestsPR, 0, len(resp.PullRequests))
 	for _, pr := range resp.PullRequests {
-		text += fmt.Sprintf("- %s: %s → %s [%s] (%s)\n", pr.Key, pr.Branch, pr.Base, pr.Status, pr.Title)
+		pullRequests = append(pullRequests, ListPullRequestsPR{
+			Key:    pr.Key,
+			Title:  pr.Title,
+			Branch: pr.Branch,
+		})
 	}
-	if len(resp.PullRequests) == 0 {
-		text = "No pull requests found."
+
+	response := ListPullRequestsToolResponse{
+		ProjectKey:        projectKey,
+		TotalPullRequests: len(pullRequests),
+		PullRequests:      pullRequests,
 	}
-	return mcp.NewToolResultText(text), nil
+
+	respJSON, _ := json.MarshalIndent(response, "", "  ")
+	return mcp.NewToolResultText(string(respJSON)), nil
 }

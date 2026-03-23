@@ -10,6 +10,7 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
+// API response types
 type createWebhookResponse struct {
 	Webhook createWebhookEntry `json:"webhook"`
 }
@@ -17,6 +18,14 @@ type createWebhookEntry struct {
 	Key  string `json:"key"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+}
+
+// Tool response types (matching Java CreateWebhookToolResponse)
+type CreateWebhookToolResponse struct {
+	Key       string `json:"key"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	HasSecret bool   `json:"hasSecret"`
 }
 
 func NewCreateWebhookMCPTool() mcp.Tool {
@@ -55,7 +64,8 @@ func CreateWebhookHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	params.Set("url", webhookURL)
 
 	projectKey := mcputils.OptionalProjectKey(args, "projectKey")
-	if secret := mcputils.GetOptionalString(args, "secret"); secret != "" {
+	secret := mcputils.GetOptionalString(args, "secret")
+	if secret != "" {
 		params.Set("secret", secret)
 	}
 
@@ -72,5 +82,16 @@ func CreateWebhookHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultError(fmt.Sprintf("Create webhook failed: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Webhook created: %s (%s) → %s", resp.Webhook.Name, resp.Webhook.Key, resp.Webhook.URL)), nil
+	response := CreateWebhookToolResponse{
+		Key:       resp.Webhook.Key,
+		Name:      resp.Webhook.Name,
+		URL:       resp.Webhook.URL,
+		HasSecret: secret != "",
+	}
+
+	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
+	}
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }

@@ -72,9 +72,23 @@ func truncate(s string, max int) string {
 	return s
 }
 
+// systemToolNames lists tool names that are only available on SonarQube Server.
+var systemToolNames = map[string]bool{
+	"ping_system":       true,
+	"get_system_status": true,
+	"get_system_health": true,
+	"get_system_info":   true,
+	"get_system_logs":   true,
+}
+
+// cloudOnlyToolNames lists tool names that are only available on SonarQube Cloud.
+var cloudOnlyToolNames = map[string]bool{
+	"list_enterprises":          true,
+	"run_advanced_code_analysis": true,
+}
+
 // NewMCPServer creates and returns an MCP server with all tools registered
 func NewMCPServer() *server.MCPServer {
-	// Create a new MCP server
 	s := server.NewMCPServer(
 		"sonarqube-mcp",
 		"1.0.0",
@@ -83,8 +97,17 @@ func NewMCPServer() *server.MCPServer {
 		server.WithToolHandlerMiddleware(requestLoggerMiddleware),
 	)
 
-	// Register all tools from the shared registry
-	for _, entry := range mcptools.Registry {
+	isCloud := mcputils.IsCloud()
+
+	for name, entry := range mcptools.Registry {
+		// System tools only on Server
+		if systemToolNames[name] && isCloud {
+			continue
+		}
+		// Cloud-only tools
+		if cloudOnlyToolNames[name] && !isCloud {
+			continue
+		}
 		s.AddTool(entry.Tool, entry.Handler)
 	}
 

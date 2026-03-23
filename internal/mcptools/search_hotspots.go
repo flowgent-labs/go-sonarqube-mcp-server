@@ -12,6 +12,7 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
+// API response types
 type searchHotspotsResponse struct {
 	Paging   searchHotspotsPaging    `json:"paging"`
 	Hotspots []searchHotspotsHotspot `json:"hotspots"`
@@ -22,13 +23,64 @@ type searchHotspotsPaging struct {
 	Total     int `json:"total"`
 }
 type searchHotspotsHotspot struct {
-	Key        string `json:"key"`
-	Component  string `json:"component"`
-	Project    string `json:"project"`
-	Status     string `json:"status"`
-	Resolution string `json:"resolution"`
-	Message    string `json:"message"`
-	Line       int    `json:"line"`
+	Key                      string        `json:"key"`
+	Component                string        `json:"component"`
+	Project                  string        `json:"project"`
+	SecurityCategory         string        `json:"securityCategory"`
+	VulnerabilityProbability string        `json:"vulnerabilityProbability"`
+	Status                   string        `json:"status"`
+	Resolution               string        `json:"resolution"`
+	Line                     int           `json:"line"`
+	Message                  string        `json:"message"`
+	Assignee                 string        `json:"assignee"`
+	Author                   string        `json:"author"`
+	CreationDate             string        `json:"creationDate"`
+	UpdateDate               string        `json:"updateDate"`
+	TextRange                *apiTextRange `json:"textRange"`
+	RuleKey                  string        `json:"ruleKey"`
+}
+type apiTextRange struct {
+	StartLine   int `json:"startLine"`
+	EndLine     int `json:"endLine"`
+	StartOffset int `json:"startOffset"`
+	EndOffset   int `json:"endOffset"`
+}
+
+// Tool response types (matching Java SearchSecurityHotspotsToolResponse)
+type SearchSecurityHotspotsToolResponse struct {
+	Hotspots []Hotspot       `json:"hotspots"`
+	Paging   HotspotPaging   `json:"paging"`
+}
+
+type Hotspot struct {
+	Key                      string     `json:"key"`
+	Component                string     `json:"component"`
+	Project                  string     `json:"project"`
+	SecurityCategory         string     `json:"securityCategory"`
+	VulnerabilityProbability string     `json:"vulnerabilityProbability"`
+	Status                   string     `json:"status"`
+	Resolution               *string    `json:"resolution,omitempty"`
+	Line                     *int       `json:"line,omitempty"`
+	Message                  string     `json:"message"`
+	Assignee                 *string    `json:"assignee,omitempty"`
+	Author                   string     `json:"author"`
+	CreationDate             string     `json:"creationDate"`
+	UpdateDate               string     `json:"updateDate"`
+	TextRange                *TextRange `json:"textRange,omitempty"`
+	RuleKey                  *string    `json:"ruleKey,omitempty"`
+}
+
+type TextRange struct {
+	StartLine   int `json:"startLine"`
+	EndLine     int `json:"endLine"`
+	StartOffset int `json:"startOffset"`
+	EndOffset   int `json:"endOffset"`
+}
+
+type HotspotPaging struct {
+	PageIndex int `json:"pageIndex"`
+	PageSize  int `json:"pageSize"`
+	Total     int `json:"total"`
 }
 
 func NewSearchSecurityHotspotsMCPTool() mcp.Tool {
@@ -104,20 +156,57 @@ func SearchSecurityHotspotsHandler(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(fmt.Sprintf("Search hotspots failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Found %d security hotspots:\n", resp.Paging.Total)
+	response := SearchSecurityHotspotsToolResponse{
+		Hotspots: make([]Hotspot, 0, len(resp.Hotspots)),
+		Paging: HotspotPaging{
+			PageIndex: resp.Paging.PageIndex,
+			PageSize:  resp.Paging.PageSize,
+			Total:     resp.Paging.Total,
+		},
+	}
 	for _, h := range resp.Hotspots {
-		line := ""
-		if h.Line > 0 {
-			line = fmt.Sprintf(":%d", h.Line)
+		hotspot := Hotspot{
+			Key:                      h.Key,
+			Component:                h.Component,
+			Project:                  h.Project,
+			SecurityCategory:         h.SecurityCategory,
+			VulnerabilityProbability: h.VulnerabilityProbability,
+			Status:                   h.Status,
+			Message:                  h.Message,
+			Author:                   h.Author,
+			CreationDate:             h.CreationDate,
+			UpdateDate:               h.UpdateDate,
 		}
-		text += fmt.Sprintf("- %s [%s] %s%s — %s", h.Key, h.Status, h.Component, line, h.Message)
 		if h.Resolution != "" {
-			text += fmt.Sprintf(" (%s)", h.Resolution)
+			v := h.Resolution
+			hotspot.Resolution = &v
 		}
-		text += "\n"
+		if h.Line > 0 {
+			v := h.Line
+			hotspot.Line = &v
+		}
+		if h.Assignee != "" {
+			v := h.Assignee
+			hotspot.Assignee = &v
+		}
+		if h.TextRange != nil {
+			hotspot.TextRange = &TextRange{
+				StartLine:   h.TextRange.StartLine,
+				EndLine:     h.TextRange.EndLine,
+				StartOffset: h.TextRange.StartOffset,
+				EndOffset:   h.TextRange.EndOffset,
+			}
+		}
+		if h.RuleKey != "" {
+			v := h.RuleKey
+			hotspot.RuleKey = &v
+		}
+		response.Hotspots = append(response.Hotspots, hotspot)
 	}
-	if len(resp.Hotspots) == 0 {
-		text = "No security hotspots found."
+
+	jsonBytes, err := json.MarshalIndent(response, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to marshal response: %v", err)), nil
 	}
-	return mcp.NewToolResultText(text), nil
+	return mcp.NewToolResultText(string(jsonBytes)), nil
 }

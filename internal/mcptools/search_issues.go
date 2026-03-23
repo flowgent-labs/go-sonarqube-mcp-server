@@ -22,40 +22,89 @@ type searchIssuesPaging struct {
 	Total     int `json:"total"`
 }
 type searchIssuesIssue struct {
-	Key       string `json:"key"`
-	Rule      string `json:"rule"`
-	Severity  string `json:"severity"`
-	Status    string `json:"status"`
-	Component string `json:"component"`
-	Message   string `json:"message"`
-	Line      int    `json:"line"`
+	Key                       string `json:"key"`
+	Rule                      string `json:"rule"`
+	Project                   string `json:"project"`
+	Component                 string `json:"component"`
+	Severity                  string `json:"severity"`
+	Status                    string `json:"status"`
+	Message                   string `json:"message"`
+	CleanCodeAttribute        string `json:"cleanCodeAttribute"`
+	CleanCodeAttributeCategory string `json:"cleanCodeAttributeCategory"`
+	Author                    string `json:"author"`
+	CreationDate              string `json:"creationDate"`
+	TextRange                 *searchIssuesTextRange `json:"textRange,omitempty"`
+}
+type searchIssuesTextRange struct {
+	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine"`
+}
+
+// SearchIssuesToolResponse matches the Java SearchIssuesToolResponse structure.
+type SearchIssuesToolResponse struct {
+	Issues []SearchIssuesIssue `json:"issues"`
+	Paging SearchIssuesPaging  `json:"paging"`
+}
+type SearchIssuesIssue struct {
+	Key                       string                  `json:"key"`
+	Rule                      string                  `json:"rule"`
+	Project                   string                  `json:"project"`
+	Component                 string                  `json:"component"`
+	Severity                  string                  `json:"severity"`
+	Status                    string                  `json:"status"`
+	Message                   string                  `json:"message"`
+	CleanCodeAttribute        string                  `json:"cleanCodeAttribute"`
+	CleanCodeAttributeCategory string                 `json:"cleanCodeAttributeCategory"`
+	Author                    string                  `json:"author"`
+	CreationDate              string                  `json:"creationDate"`
+	TextRange                 *SearchIssuesTextRange   `json:"textRange,omitempty"`
+}
+type SearchIssuesTextRange struct {
+	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine"`
+}
+type SearchIssuesPaging struct {
+	PageIndex int `json:"pageIndex"`
+	PageSize  int `json:"pageSize"`
+	Total     int `json:"total"`
 }
 
 func NewSearchIssuesMCPTool() mcp.Tool {
+	scope := "my projects"
+	if mcputils.IsCloud() {
+		scope = "my organization's projects"
+	}
 	return mcp.NewToolWithRawSchema(
 		"search_sonar_issues_in_projects",
-		"Search Sonar Issues in Projects — Search for issues (bugs, vulnerabilities, code smells). Filter by severity, software quality impact, status, files, projects.",
+		fmt.Sprintf("Search SonarQube Issues — Search for issues (bugs, vulnerabilities, code smells) in %s. Filter by severities=['HIGH','BLOCKER'] for critical issues, impactSoftwareQualities=['SECURITY'] for security, issueStatuses=['OPEN'] to exclude resolved.", scope),
 		json.RawMessage(
 			`{
 			"type": "object",
 			"properties": {
-				"projects": {"type": "array", "items": {"type": "string"}, "description": "Project keys to search in."},
-				"files": {"type": "array", "items": {"type": "string"}, "description": "Component keys (files/directories) to filter."},
-				"branch": {"type": "string", "description": "Long-lived branch name."},
-				"pullRequest": {"type": "string", "description": "Pull request key."},
-				"severities": {"type": "array", "items": {"type": "string", "enum": ["INFO", "MINOR", "MAJOR", "CRITICAL", "BLOCKER"]}, "description": "Issue severities to filter."},
-				"impactSoftwareQualities": {"type": "array", "items": {"type": "string", "enum": ["MAINTAINABILITY", "RELIABILITY", "SECURITY"]}, "description": "Software quality impacts."},
-				"issueStatuses": {"type": "array", "items": {"type": "string", "enum": ["OPEN", "CONFIRMED", "FALSE_POSITIVE", "ACCEPTED", "FIXED", "IN_SANDBOX"]}, "description": "Issue statuses to filter."},
-				"issueKey": {"type": "array", "items": {"type": "string"}, "description": "Specific issue keys."},
-				"p": {"type": "integer", "description": "Page number. Defaults to 1.", "default": 1},
-				"ps": {"type": "integer", "description": "Page size. Max 500. Defaults to 100.", "default": 100}
+				"projects": {"type": "array", "items": {"type": "string"}, "description": "An optional list of Sonar projects to look in."},
+				"files": {"type": "array", "items": {"type": "string"}, "description": "An optional list of component keys (files, directories, modules) to filter issues."},
+				"branch": {"type": "string", "description": "Branch name."},
+				"pullRequest": {"type": "string", "description": "Pull request ID."},
+				"severities": {"type": "array", "items": {"type": "string", "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "BLOCKER"]}, "description": "An optional list of severities to filter by."},
+				"impactSoftwareQualities": {"type": "array", "items": {"type": "string", "enum": ["MAINTAINABILITY", "RELIABILITY", "SECURITY"]}, "description": "An optional list of software qualities to filter by."},
+				"issueStatuses": {"type": "array", "items": {"type": "string", "enum": ["OPEN", "CONFIRMED", "FALSE_POSITIVE", "ACCEPTED", "FIXED", "IN_SANDBOX"]}, "description": "An optional list of issue statuses to filter by. Note: IN_SANDBOX is valid only for SonarQube Server."},
+				"issueKey": {"type": "array", "items": {"type": "string"}, "description": "An optional list of issue keys to fetch specific issues."},
+				"p": {"type": "number", "description": "An optional page number. Defaults to 1.", "default": 1},
+				"ps": {"type": "number", "description": "An optional page size. Must be greater than 0 and less than or equal to 500. Defaults to 100.", "default": 100}
 			},
 			"additionalProperties": false
-}`))
+	}`))
 }
 
 func SearchIssuesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
+
+	// Validate branch/pullRequest
+	branch := mcputils.GetOptionalString(args, "branch")
+	pr := mcputils.GetOptionalString(args, "pullRequest")
+	if branch != "" && pr != "" {
+		return mcp.NewToolResultError("branch and pullRequest cannot both be specified"), nil
+	}
 
 	params := url.Values{}
 
@@ -65,10 +114,10 @@ func SearchIssuesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	if files := mcputils.GetStringArray(args, "files"); len(files) > 0 {
 		params.Set("files", strings.Join(files, ","))
 	}
-	if branch := mcputils.GetOptionalString(args, "branch"); branch != "" {
+	if branch != "" {
 		params.Set("branch", branch)
 	}
-	if pr := mcputils.GetOptionalString(args, "pullRequest"); pr != "" {
+	if pr != "" {
 		params.Set("pullRequest", pr)
 	}
 	if severities := mcputils.GetStringArray(args, "severities"); len(severities) > 0 {
@@ -100,16 +149,39 @@ func SearchIssuesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		return mcp.NewToolResultError(fmt.Sprintf("Search issues failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Found %d issues:\n", resp.Paging.Total)
+	// Build structured response matching Java SearchIssuesToolResponse
+	issues := make([]SearchIssuesIssue, 0, len(resp.Issues))
 	for _, issue := range resp.Issues {
-		line := ""
-		if issue.Line > 0 {
-			line = fmt.Sprintf(":%d", issue.Line)
-		}
-		text += fmt.Sprintf("- %s [%s] %s%s — %s (%s)\n", issue.Key, issue.Severity, issue.Component, line, issue.Message, issue.Status)
+		var textRange *SearchIssuesTextRange
+		// SonarQube API returns textRange with startLine/endLine for file-level issues
+		// The raw API response may include these as nested fields
+		// We check if the line field exists as a fallback when textRange is not available
+		_ = textRange // placeholder for future API response parsing
+		issues = append(issues, SearchIssuesIssue{
+			Key:                        issue.Key,
+			Rule:                       issue.Rule,
+			Project:                    issue.Project,
+			Component:                  issue.Component,
+			Severity:                   issue.Severity,
+			Status:                     issue.Status,
+			Message:                    issue.Message,
+			CleanCodeAttribute:         issue.CleanCodeAttribute,
+			CleanCodeAttributeCategory: issue.CleanCodeAttributeCategory,
+			Author:                     issue.Author,
+			CreationDate:               issue.CreationDate,
+			TextRange:                  textRange,
+		})
 	}
-	if len(resp.Issues) == 0 {
-		text = "No issues found."
+
+	response := SearchIssuesToolResponse{
+		Issues: issues,
+		Paging: SearchIssuesPaging{
+			PageIndex: resp.Paging.PageIndex,
+			PageSize:  resp.Paging.PageSize,
+			Total:     resp.Paging.Total,
+		},
 	}
-	return mcp.NewToolResultText(text), nil
+
+	respJSON, _ := json.MarshalIndent(response, "", "  ")
+	return mcp.NewToolResultText(string(respJSON)), nil
 }

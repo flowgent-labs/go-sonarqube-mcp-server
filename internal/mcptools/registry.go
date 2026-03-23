@@ -72,4 +72,13 @@ var Registry = map[string]ToolEntry{
 
 	// Dependency Risks
 	"search_dependency_risks": {Tool: NewSearchDependencyRisksMCPTool(), Handler: SearchDependencyRisksHandler},
+
+	// Enterprises (Cloud-only)
+	"list_enterprises": {Tool: NewListEnterprisesMCPTool(), Handler: ListEnterprisesHandler},
+
+	// Analysis
+	"analyze_code_snippet":         {Tool: NewAnalyzeCodeSnippetMCPTool(), Handler: AnalyzeCodeSnippetHandler},
+	"analyze_file_list":            {Tool: NewAnalyzeFileListMCPTool(), Handler: AnalyzeFileListHandler},
+	"toggle_automatic_analysis":    {Tool: NewToggleAutomaticAnalysisMCPTool(), Handler: ToggleAutomaticAnalysisHandler},
+	"run_advanced_code_analysis":   {Tool: NewRunAdvancedCodeAnalysisMCPTool(), Handler: RunAdvancedCodeAnalysisHandler},
 }

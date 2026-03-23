@@ -11,18 +11,51 @@ import (
 	mcputils "sonarqube-mcp/internal/helpers"
 )
 
-type componentMeasuresResponse struct {
-	Component componentMeasuresComp `json:"component"`
+// Raw API response structures
+type measuresComponentResponse struct {
+	Component measuresComponent `json:"component"`
 }
-type componentMeasuresComp struct {
-	Key      string                     `json:"key"`
-	Name     string                     `json:"name"`
-	Measures []componentMeasuresMeasure `json:"measures"`
+type measuresComponent struct {
+	Key         string                  `json:"key"`
+	Name        string                  `json:"name"`
+	Qualifier   string                  `json:"qualifier"`
+	Description string                  `json:"description"`
+	Language    string                  `json:"language"`
+	Path        string                  `json:"path"`
+	Measures    []measuresMeasureEntry  `json:"measures"`
 }
-type componentMeasuresMeasure struct {
+type measuresMeasureEntry struct {
 	Metric    string `json:"metric"`
 	Value     string `json:"value"`
 	BestValue bool   `json:"bestValue"`
+}
+
+// Structured response matching Java GetComponentMeasuresToolResponse
+type GetComponentMeasuresToolResponse struct {
+	Component Component       `json:"component"`
+	Measures  []Measure       `json:"measures"`
+	Metrics   []Metric        `json:"metrics,omitempty"`
+}
+type Component struct {
+	Key         string  `json:"key"`
+	Name        string  `json:"name"`
+	Qualifier   string  `json:"qualifier"`
+	Description *string `json:"description,omitempty"`
+	Language    *string `json:"language,omitempty"`
+	Path        *string `json:"path,omitempty"`
+}
+type Measure struct {
+	Metric string  `json:"metric"`
+	Value  *string `json:"value,omitempty"`
+}
+type Metric struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	Type        string `json:"type"`
+	Hidden      bool   `json:"hidden"`
+	Custom      bool   `json:"custom"`
 }
 
 func NewGetComponentMeasuresMCPTool() mcp.Tool {
@@ -39,7 +72,7 @@ func NewGetComponentMeasuresMCPTool() mcp.Tool {
 				"metricKeys": {"type": "array", "items": {"type": "string"}, "description": "Metric keys (e.g. ncloc, complexity, violations, coverage)."}
 			},
 			"additionalProperties": false
-}`))
+	}`))
 }
 
 func GetComponentMeasuresHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -64,21 +97,43 @@ func GetComponentMeasuresHandler(ctx context.Context, request mcp.CallToolReques
 	}
 
 	client := mcputils.NewSQClient()
-	var resp componentMeasuresResponse
+	var resp measuresComponentResponse
 	if err := client.DoGet(ctx, "/api/measures/component", params, &resp); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Get component measures failed: %v", err)), nil
 	}
 
-	text := fmt.Sprintf("Measures for %s:\n", resp.Component.Name)
-	for _, m := range resp.Component.Measures {
-		best := ""
-		if m.BestValue {
-			best = " [best]"
+	// Build component
+	c := resp.Component
+	component := Component{
+		Key:       c.Key,
+		Name:      c.Name,
+		Qualifier: c.Qualifier,
+	}
+	if c.Description != "" {
+		component.Description = &c.Description
+	}
+	if c.Language != "" {
+		component.Language = &c.Language
+	}
+	if c.Path != "" {
+		component.Path = &c.Path
+	}
+
+	// Build measures
+	measures := make([]Measure, 0, len(c.Measures))
+	for _, m := range c.Measures {
+		measure := Measure{Metric: m.Metric}
+		if m.Value != "" {
+			measure.Value = &m.Value
 		}
-		text += fmt.Sprintf("- %s: %s%s\n", m.Metric, m.Value, best)
+		measures = append(measures, measure)
 	}
-	if len(resp.Component.Measures) == 0 {
-		text += "(no measures returned)\n"
+
+	response := GetComponentMeasuresToolResponse{
+		Component: component,
+		Measures:  measures,
 	}
-	return mcp.NewToolResultText(text), nil
+
+	respJSON, _ := json.MarshalIndent(response, "", "  ")
+	return mcp.NewToolResultText(string(respJSON)), nil
 }
