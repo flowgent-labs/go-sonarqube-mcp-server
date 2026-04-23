@@ -192,19 +192,46 @@ func GetOptionalString(args map[string]interface{}, key string) string {
 }
 
 // GetStringArray extracts an optional string array argument.
+// Accepts MCP JSON arrays ([]interface{}), []string, or a single string
+// (CLI mode passes --files as string; comma-separated values are supported).
 func GetStringArray(args map[string]interface{}, key string) []string {
-	if v, ok := args[key]; ok {
-		if arr, ok := v.([]interface{}); ok {
-			result := make([]string, 0, len(arr))
-			for _, item := range arr {
-				if s, ok := item.(string); ok && s != "" {
-					result = append(result, s)
-				}
-			}
-			return result
-		}
+	v, ok := args[key]
+	if !ok {
+		return nil
 	}
-	return nil
+
+	switch val := v.(type) {
+	case []interface{}:
+		result := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok && s != "" {
+				result = append(result, s)
+			}
+		}
+		return result
+	case []string:
+		result := make([]string, 0, len(val))
+		for _, s := range val {
+			if s != "" {
+				result = append(result, s)
+			}
+		}
+		return result
+	case string:
+		if val == "" {
+			return nil
+		}
+		parts := strings.Split(val, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 // GetIntOrDefault extracts an integer argument with a default value.

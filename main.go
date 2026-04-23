@@ -12,10 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mark3labs/mcp-go/server"
 	mcputils "sonarqube-mcp/internal/helpers"
 	mcpcli "sonarqube-mcp/internal/mcpcli"
 	mcpserver "sonarqube-mcp/internal/mcpserver"
+
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func logHTTP(next http.Handler) http.Handler {
