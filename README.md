@@ -4,15 +4,28 @@ A Go MCP server for SonarQube, providing AI agents with access to code quality, 
 
 ## Quick Start
 
+### Build from Source
+
 ```sh
 make
+```
+
+### Usage Example
+
+- https://sonarqube.example.com/component_measures?id=rengine&metric=duplicated_lines&selected=rengine%3Aeventbus%2Feventbus-base%2Fsrc%2Fmain%2Fjava%2Fcom%2Fwl4g%2Frengine%2Feventbus%2Frecorder%2FRedisEventRecorder.java
+
+```bash
+export SONARQUBE_URL=https://sonarqube.example.com
+export SONARQUBE_TOKEN=squ_xxxx
+./bin/sonarqube-mcp -t cli list
+./bin/sonarqube-mcp -t cli agg_search_issue_summary --branch main --ps 20 --key rengine:eventbus/eventbus-base/src/main/java/com/wl4g/rengine/eventbus/recorder/RedisEventRecorder.java
 ```
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `SONARQUBE_URL` | Conditional | SonarQube Server URL (e.g. `https://sonar.example.com`). Not needed if `SONARQUBE_ORG` is set. |
+| `SONARQUBE_URL` | Conditional | SonarQube Server URL (e.g. `https://sonarqube.example.com`). Not needed if `SONARQUBE_ORG` is set. |
 | `SONARQUBE_TOKEN` | Yes (stdio) | SonarQube user token. In HTTP mode, can be provided via `Authorization: Bearer` header. |
 | `SONARQUBE_TOKEN_FILE` | No | Path to a file containing the token (for Docker/Kubernetes secrets). |
 | `SONARQUBE_ORG` | No | SonarQube Cloud organization key. Setting this implies Cloud mode. |
@@ -41,7 +54,7 @@ The server retrieves the SonarQube token using the following priority:
       "command": "./sonarqube-mcp",
       "args": ["--transport", "stdio"],
       "env": {
-        "SONARQUBE_URL": "https://your-sonarqube.example.com",
+        "SONARQUBE_URL": "https://sonarqube.example.com",
         "SONARQUBE_TOKEN": "your-token"
       }
     }
@@ -60,7 +73,7 @@ mcp:
       command: ./sonarqube-mcp
       args: ["--transport", "stdio"]
       env:
-        SONARQUBE_URL: https://your-sonarqube.example.com
+        SONARQUBE_URL: https://sonarqube.example.com
         SONARQUBE_TOKEN: your-token
 ```
 
@@ -69,7 +82,7 @@ mcp:
 Start the server:
 
 ```sh
-export SONARQUBE_URL=https://your-sonarqube.example.com
+export SONARQUBE_URL=https://sonarqube.example.com
 export SONARQUBE_TOKEN=your-token
 ./sonarqube-mcp --transport http --port 8080
 ```
@@ -82,7 +95,7 @@ Claude Code (remote):
     "sonarqube": {
       "url": "http://localhost:8080/mcp",
       "env": {
-        "SONARQUBE_URL": "https://your-sonarqube.example.com",
+        "SONARQUBE_URL": "https://sonarqube.example.com",
         "SONARQUBE_TOKEN": "your-token"
       }
     }
